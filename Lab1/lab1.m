@@ -47,19 +47,12 @@ for i = 1:N
 
     EIG(i) = sum(Gx(:).^2 + Gy(:).^2);
 
-    %% FT2
-    F = fftshift(fft2(I));
-    F = abs(F);
+    
 
-    [h,w] = size(F);
-    [X,Y] = meshgrid(1:w,1:h);
-
-    centerX = w/2;
-    centerY = h/2;
-
-    radius = sqrt((X-centerX).^2 + (Y-centerY).^2);
-
-    FT2(i) = sum(F(radius > 10).^2);
+  %% FT2
+    F = fft2(I);
+    
+    FT2(i) = sum(abs(F(:)));
 
 end
 
