@@ -215,7 +215,7 @@ sgtitle('Hur fönsterpositionen påverkar fokusmåttens kurvor');
 %  =====================================================================
 
 %% --- 3a. En fullfokusbild med en standardstorlek på fönstret ---
-method       = 'EIG';   % 'VAR' | 'EIG' | 'FT2'
+method       = 'VAR';   % 'VAR' | 'EIG' | 'FT2'
 windowHeight = 16;
 windowWidth  = 16;
 
