@@ -2,9 +2,7 @@ clear;
 close all;
 clc;
 
-%% =====================================================================
-%  DEL 0 - LADDA IN BILDERNA
-%  =====================================================================
+%% DEL 0 LADDA IN BILDERNA
 % Läser in alla jpg-bilder i mappen KaktusFocus. Bilderna är redan
 % gråskala, så vi gör bara om dem till double så vi kan räkna på dem.
 files = dir('KaktusFocus/*.jpg');
@@ -16,12 +14,11 @@ end
 N = length(images);
 [H,W] = size(images{1});
 
-%% =====================================================================
-%  DEL 1 - VÄLJ FOKUSFÖNSTER
-%  =====================================================================
+%% DEL 1 VÄLJ FOKUSFÖNSTER
 % Vi visar en av bilderna i stacken (bild 13 funkar bra som referens)
 % och låter användaren klicka ut fönstret man vill titta på.
 refIdx = 13;   % vilken bild vi använder för att välja fönster
+% Rita ut en röda ram över valt fönster så man ser att det blev rätt
 figure;
 imshow(images{refIdx},[]);
 title('Klicka i två hörn för att välja fokusfönster');
@@ -35,7 +32,7 @@ y2 = round(max(y));
 x1 = max(1,x1); y1 = max(1,y1);
 x2 = min(W,x2); y2 = min(H,y2);
 
-% Rita ut en röda ram över valt fönster så man ser att det blev rätt
+%% Visa de bilder som respektive mått pekar ut som bäst
 figure;
 imshow(images{refIdx},[]);
 hold on;
@@ -43,9 +40,7 @@ rectangle('Position',[x1,y1,x2-x1,y2-y1],'EdgeColor','r','LineWidth',2);
 title('Valt fokusfönster');
 hold off;
 
-%% =====================================================================
-%  DEL 1/2 - BERÄKNA FOKUSMÅTTEN (VAR, EIG, FT2) + TIDTAGNING PER MÅTT
-%  =====================================================================
+%% DEL 1/2 BERÄKNA FOKUSMÅTTEN (VAR, EIG, FT2) + TIDTAGNING PER MÅTT
 VAR = zeros(1,N);
 EIG = zeros(1,N);
 FT2 = zeros(1,N);
@@ -56,14 +51,14 @@ tVAR = 0; tEIG = 0; tFT2 = 0;
 for i = 1:N
     I = images{i}(y1:y2,x1:x2);   % klipper ut fokusfönstret ur bild i
 
-    %% VAR - bildvarians (Ekv. 1 i artikeln)
+    %% VAR bildvarians (Ekvation 1 i artikeln)
     % Enklaste måttet: hur mycket varierar pixelvärdena i fönstret?
     t0 = tic;
     VAR(i) = var(I(:));
     tVAR = tVAR + toc(t0);
 
-    %% EIG - energin i bildgradienten (Ekv. 4)
-    % Tar fram kanter i x- och y-led och summerar kvadraten av dem.
+    %% EIG energin i bildgradienten (Ekv. 4)
+    % Tar fram kanter i x och yled och summerar kvadraten av dem.
     % Skarpa bilder har starkare kanter -> högre värde.
     t0 = tic;
     Gx = imfilter(I,[-1 0 1],'replicate');
@@ -71,10 +66,9 @@ for i = 1:N
     EIG(i) = sum(Gx(:).^2 + Gy(:).^2);
     tEIG = tEIG + toc(t0);
 
-    %% FT2 - spektrummått (Ekv. 8, strikt enligt formeln)
+    %% FT2 spektrummått (Ekv. 8, enligt formeln)
     % Summerar hela Fourierspektrumets magnitud, förutom själva
-    % DC-termen (medelvärdet/likströmskomponenten), precis som
-    % definitionen i artikeln säger.
+    % DC termen (medelvärdet), precis som definitionen i artikeln säger.
     t0 = tic;
     F = abs(fft2(I));
     F(1,1) = 0;            % DC-termen ligger alltid i (1,1) innan fftshift
@@ -96,7 +90,7 @@ fprintf('Bästa bild enligt VAR = %d\n',bestVAR);
 fprintf('Bästa bild enligt EIG = %d\n',bestEIG);
 fprintf('Bästa bild enligt FT2 = %d\n',bestFT2);
 
-%% Visa de bilder som respektive mått pekar ut som bäst
+%% Prestandakurvor (normaliserade så alla toppar hamnar på 1)
 figure;
 subplot(1,3,1);
 imshow(images{bestVAR},[]);
@@ -108,7 +102,6 @@ subplot(1,3,3);
 imshow(images{bestFT2},[]);
 title(['FT2: Bild ',num2str(bestFT2)]);
 
-%% Prestandakurvor (normaliserade så alla toppar hamnar på 1)
 figure;
 plot(1:N,VAR/max(VAR),'o-');
 hold on;
@@ -120,17 +113,15 @@ legend('VAR','EIG','FT2');
 title(sprintf('Fokusmåttens prestanda (fönster: [%d %d]-[%d %d])',x1,y1,x2,y2));
 grid on;
 
-%% =====================================================================
-%  DEL 2b - VARIERA FÖNSTERSTORLEK OCH POSITION
+%% DEL 2b VARIERA FÖNSTERSTORLEK OCH POSITION
 %  (svarar på: "hur påverkar storlek och position resultatet?")
-%  =====================================================================
 % Utgångspunkt: samma fönster som valdes ovan med ginput
 baseW = x2 - x1 + 1;
 baseH = y2 - y1 + 1;
 cx = round((x1+x2)/2);
 cy = round((y1+y2)/2);
 
-% --- Effekten av FÖNSTERSTORLEK (samma mittpunkt hela tiden) ---
+% Effekten av FÖNSTERSTORLEK (samma mittpunkt hela tiden)
 sizeFactors = [0.5 1 2 4];   % hur mycket vi skalar upp/ner ursprungsfönstret
 figure('Name','Effekt av fönsterstorlek');
 for s = 1:length(sizeFactors)
@@ -162,8 +153,8 @@ for s = 1:length(sizeFactors)
 end
 sgtitle('Hur fönsterstorleken påverkar fokusmåttens kurvor');
 
-% --- Effekten av FÖNSTERPOSITION (samma storlek, olika platser i bilden) ---
-% OBS: "center" motsvarar ditt egna valda fönster. De andra tre är
+% Effekten av FÖNSTERPOSITION (samma storlek, olika platser i bilden)
+% OBS: "center" motsvarar vårt egna valda fönster. De andra tre är
 % helt nya positioner (fasta procentandelar av bildens bredd/höjd),
 % inte förskjutningar av ditt fönster.
 positions = struct( ...
@@ -199,15 +190,13 @@ for p = 1:length(positions)
 end
 sgtitle('Hur fönsterpositionen påverkar fokusmåttens kurvor');
 
-%% =====================================================================
-%  DEL 3 - FULLFOKUSBILD (sätter ihop bilden via ett litet glidande fönster)
+
+%%  DEL 3 FULLFOKUSBILD (sätter ihop bilden via ett litet glidande fönster)
 %  Uppgift 3: "loopa över bilden med ett litet fokusfönster och använd,
 %  för varje position, bilddatan från den stackbild som har bäst fokus."
-%  Vi ska även visa hur fönsterstorleken påverkar både bildkvalitet
+%  Vi visar hur fönsterstorleken påverkar både bildkvalitet
 %  och beräkningstid.
-%  =====================================================================
-
-%% --- 3a. En fullfokusbild med en standardstorlek på fönstret ---
+%%  3a. En fullfokusbild med en standardstorlek på fönstret
 method       = 'VAR';   % 'VAR' | 'EIG' | 'FT2'
 windowHeight = 16;
 windowWidth  = 16;
@@ -222,7 +211,7 @@ fprintf('\nMetod: %s\n',method);
 fprintf('Fönster: %d x %d\n',windowHeight,windowWidth);
 fprintf('Tid: %.3f sekunder\n',time);
 
-%% --- 3b. Variera fönsterstorlek: kvalitet vs beräkningstid ---
+%% 3b. Variera fönsterstorlek: kvalitet vs beräkningstid
 windowSizes = [4 8 16 32 64];   % kvadratiska fönster, från litet till stort
 sweepTimes  = zeros(1,length(windowSizes));
 sweepImages = cell(1,length(windowSizes));
@@ -252,9 +241,7 @@ ylabel('Beräkningstid (s)');
 title(sprintf('Beräkningstid vs fönsterstorlek, del 3 (metod: %s)', method));
 grid on;
 
-%% =====================================================================
-%  LOKAL FUNKTION - bygger en fullfokusbild för en given fönsterstorlek
-%  =====================================================================
+%% LOKAL FUNKTION - bygger en fullfokusbild för en given fönsterstorlek
 function [focusedImage, elapsed] = buildFullFocusImage(images, N, H, W, ...
     windowHeight, windowWidth, method)
 
