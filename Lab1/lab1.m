@@ -76,12 +76,9 @@ for i = 1:N
     % DC-termen (medelvärdet/likströmskomponenten), precis som
     % definitionen i artikeln säger.
     t0 = tic;
-    F = abs(fftshift(fft2(I)));
-    [h,w] = size(F);
-    cy = floor(h/2)+1;   % var DC-termen hamnar efter fftshift
-    cx = floor(w/2)+1;
-    F(cy,cx) = 0;         % nollställ bara DC-punkten
-    FT2(i) = sum(F(:));   % summera resten av spektrumet
+    F = abs(fft2(I));
+    F(1,1) = 0;            % DC-termen ligger alltid i (1,1) innan fftshift
+    FT2(i) = sum(F(:));    % summera resten av spektrumet
     tFT2 = tFT2 + toc(t0);
 end
 
@@ -149,10 +146,8 @@ for s = 1:length(sizeFactors)
         Gx = imfilter(I,[-1 0 1],'replicate');
         Gy = imfilter(I,[-1;0;1],'replicate');
         e(i) = sum(Gx(:).^2 + Gy(:).^2);
-        Fm = abs(fftshift(fft2(I)));
-        [hh,ww] = size(Fm);
-        cyF = floor(hh/2)+1; cxF = floor(ww/2)+1;
-        Fm(cyF,cxF) = 0;
+        Fm = abs(fft2(I));
+        Fm(1,1) = 0;
         f(i) = sum(Fm(:));
     end
 
@@ -188,10 +183,8 @@ for p = 1:length(positions)
         Gx = imfilter(I,[-1 0 1],'replicate');
         Gy = imfilter(I,[-1;0;1],'replicate');
         e(i) = sum(Gx(:).^2 + Gy(:).^2);
-        Fm = abs(fftshift(fft2(I)));
-        [hh,ww] = size(Fm);
-        cyF = floor(hh/2)+1; cxF = floor(ww/2)+1;
-        Fm(cyF,cxF) = 0;
+        Fm = abs(fft2(I));
+        Fm(1,1) = 0;
         f(i) = sum(Fm(:));
     end
 
@@ -295,10 +288,8 @@ function [focusedImage, elapsed] = buildFullFocusImage(images, N, H, W, ...
                     Gy = imfilter(I,[-1;0;1],'replicate');
                     scores(k) = sum(Gx(:).^2 + Gy(:).^2);
                 elseif strcmp(method,'FT2')
-                    Fm = abs(fftshift(fft2(I)));
-                    [hh,ww] = size(Fm);
-                    cyF = floor(hh/2)+1; cxF = floor(ww/2)+1;
-                    Fm(cyF,cxF) = 0;      % nollställ bara DC-termen (Ekv. 8)
+                    Fm = abs(fft2(I));
+                    Fm(1,1) = 0;          % nollställ bara DC-termen (Ekv. 8)
                     scores(k) = sum(Fm(:));
                 end
             end
