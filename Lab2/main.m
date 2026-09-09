@@ -330,7 +330,7 @@ figure; imshow(RGB_wb); title('Step 0: White-balanced (linear, no processing)')
 %% ------------------------------------------------------------------
 %% STEP 1: Contrast stretching
 %% ------------------------------------------------------------------
-low_pct  = 1;
+low_pct  = 2; % ändra här tills korrekt
 high_pct = 99;
 
 vals = RGB_wb(:);
@@ -348,7 +348,7 @@ figure; imshow(RGB_stretch); title('Step 1: Contrast stretch')
 %% ------------------------------------------------------------------
 %% STEP 2: Gamma correction
 %% ------------------------------------------------------------------
-gamma = 1.8;   % adjust based on how Step 1 looks -- try 1.5 / 1.8 / 2.4 and compare
+gamma = 1.2;   % adjust based on how Step 1 looks -- try 1.5 / 1.8 / 2.4 and compare
 RGB_gamma = RGB_stretch .^ (1/gamma);
 
 fprintf('After gamma (%.1f): min=%.4f mean=%.4f max=%.4f\n', ...
@@ -359,7 +359,7 @@ figure; imshow(RGB_gamma); title(sprintf('Step 2: Gamma correction (\\gamma=%.1f
 %% ------------------------------------------------------------------
 %% STEP 3: S-curve tone mapping
 %% ------------------------------------------------------------------
-intensity = 6;
+intensity = 3;
 
 RGB_s = 1 ./ (1 + exp(-intensity * (RGB_gamma - 0.5)));
 s_lo = 1 / (1 + exp(-intensity * (0 - 0.5)));
@@ -373,7 +373,7 @@ figure; imshow(RGB_s); title(sprintf('Step 3: S-curve tone map (intensity=%d)', 
 %% STEP 4: Unsharp masking
 %% ------------------------------------------------------------------
 sigma_blur = 2;
-amount     = 0.8;
+amount     = 0.6;
 
 RGB_blur = imgaussfilt(RGB_s, sigma_blur);
 RGB_highpass = RGB_s - RGB_blur;
