@@ -1,146 +1,244 @@
-%% flashNoFlashRun.m -- Section 4 of Petschnigg et al. 2004: denoising + detail transfer (+ flash artifact mask)
-% Full image resolution, no resizing. Needs Image Processing Toolbox (R2018b+ for sgtitle).
-close all; clear; clc;
-imgDir = uigetdir(pwd, 'Select the folder with the flash/no-flash images');
-if isequal(imgDir, 0), error('No folder selected.'); end
 
-names        = {'lamp','cave01','carpet','puppets','potsdetail'};
-pauseBetween = false;   % true: wait for a key press before starting the next scene
-closeBetween = false;   % true: close all figures when the next scene starts
+%% flashNoFlashRun.m
+% Flash/no-flash method based on Petschnigg et al. (2004), Section 4.
+% Requires Image Processing Toolbox.
 
-%% ---- PARAMETERS (full-resolution pixels) ----
-sdDenoise  = 2;      % spatial sigma (paper: 24-48 px neighbourhood on 6MP; smaller here to keep thin detail)
-srJoint    = 0.001;  % joint bilateral range sigma, paper value 0.1% (the fast filter floors it at 0.01)
-srBasic    = 0.075;  % basic bilateral range sigma, paper 5-10%
-sdDetail   = 12;     % spatial sigma of the bilateral filter that makes F_base (larger = more detail transferred)
-srDetail   = 0.10;   % range sigma of that filter (larger = more detail, more halos)
-detailGain = 1.5;    % 1 = paper; >1 exaggerates the detail layer (our addition)
-epsv       = 0.02;   % epsilon in Eq. 6 (paper)
-tauShad    = 0.02;   % shadow threshold on linear |flash - ambient|, Eq. 8
-specLevel  = 0.95;   % specular = flash luminance above 95% of range (paper)
-autoExposure = true; % estimate exposure ratio of the pair (stands in for Eq. 1; needed for the mask)
-useMask    = true;   % true: Eq. 5 and 7 with the mask (paper); false: no mask (flash trusted everywhere)
-diffMax    = 0.15;   % change that shows as full white in the difference image
+close all;
+clear;
+clc;
 
-for n = 1:numel(names)
-    nm = names{n};
-    A = im2double(imread(fullfile(imgDir,[nm '_01_noflash.tif'])));   % ambient (no flash)
-    F = im2double(imread(fullfile(imgDir,[nm '_00_flash.tif'])));     % flash
-    if size(A,3)==1, A = repmat(A,[1 1 3]); F = repmat(F,[1 1 3]); end
-    A = min(max(A,0),1);  F = min(max(F,0),1);
-    [H,W,~] = size(A);
-    fprintf('\n%s: processing full size %d x %d ...\n', nm, W, H);
-
-    sdD = sdDenoise; sjr = srJoint; sdT = sdDetail; srT = srDetail;
-    if strcmp(nm,'cave01'), sdD = 12; sjr = 0.05; sdT = 12; srT = 0.10; end  % extremely noisy pair: wide kernels (paper)
-    tic;
-
-    %% 4.1 Denoising
-    Abase = fastJbf(A, A, sdD, srBasic);     % basic bilateral filter, Eq. 2-3 (also the fallback inside the mask)
-    Anr   = fastJbf(A, F, sdD, sjr);         % joint bilateral filter, flash as guide, Eq. 4
-
-    %% 4.2 Flash-to-ambient detail transfer
-    Fbase   = fastJbf(F, F, sdT, srT);                         % F_base: basic bilateral filter of the flash image
-    Fdetail = ((F+epsv) ./ (Fbase+epsv)) .^ detailGain;        % detail layer (ratio image), Eq. 6
-    Fgauss  = imgaussfilt(F, sdT);                             % Gaussian base, only to show the halos (Fig. 5)
-    DetailG = ((F+epsv) ./ (Fgauss+epsv)) .^ detailGain;
-    Atransfer = min(max(Anr .* Fdetail, 0), 1);                % detail transfer without mask (Fig. 4f)
-
-    %% 4.3 Flash shadows and specularities -> mask M
-    Alin = A.^2.2;  Flin = F.^2.2;                             % rough linearization (gamma 2.2)
-    if autoExposure   % pixels the flash barely lights (shadows) should satisfy Flin = Alin
-        v   = Alin(:,:,2) ./ max(Flin(:,:,2), eps);
-        ok0 = (Alin(:,:,2) > 0.02) & (Flin(:,:,2) > 0.02);
-        v   = sort(v(ok0));
-        Flin = Flin * v(max(1, round(0.95*numel(v))));
-    end
-    shadow = lum(Flin - Alin) <= tauShad;                                          % Eq. 8
-    shadow = imdilate(imfill(imerode(shadow, strel('disk',2)), 'holes'), strel('disk',5));  % erode, fill, dilate
-    spec   = imdilate(imfill(lum(F) > specLevel, 'holes'), strel('disk',5));       % saturated in the flash image
-    M      = imgaussfilt(double(shadow | spec), 3);            % union, feathered edges
-    M3     = repmat(M, [1 1 3]);
-    fprintf('  mask covers %.1f%% of the image\n', 100*mean(M(:)>0.5));
-
-    %% Final images (Eq. 5 and 7)
-    AnrMask   = (1-M3).*Anr + M3.*Abase;                                          % Eq. 5 (denoising with mask)
-    AfinMask  = min(max((1-M3).*Anr.*Fdetail + M3.*Abase, 0), 1);                 % Eq. 7 (with mask)
-    Afin      = Atransfer; if useMask, Afin = AfinMask; end                       % our main result
-    dBJ       = mean(abs(Abase - Anr), 3);                                        % Fig. 4d: basic vs joint
-    fprintf('  done in %.1f s\n', toc);
-
-    %% Pick a zoom region (all panels are linked: zoom one, all follow)
-    fsel = figure('Name','Pick'); imshow(Afin);
-    title([nm ': DRAG a rectangle for the ZOOM region (something with detail), then double-click']);
-    rz = getrect(gca);  close(fsel);
-    if isempty(rz) || rz(3)<3, rz = [W*0.4 H*0.4 W*0.15 H*0.15]; end
-    xl = [max(1,rz(1)), min(W,rz(1)+rz(3))];  yl = [max(1,rz(2)), min(H,rz(2)+rz(4))];
-
-    %% Figure 1: like the paper's Fig. 4
-    showFig([nm ' 1: denoising + detail transfer (paper Fig. 4)'], ...
-        {A, F, Abase, Anr, dBJ, Fdetail/2, Afin}, ...
-        {'(a) No-flash (ambient)', '(a) Flash', '(b) Denoised: basic bilateral', ...
-         '(c) Denoised: joint bilateral (flash-guided)', ...
-         sprintf('(d) Difference (b) vs (c), mean %.3f', mean(dBJ(:))), ...
-         '(e) Detail layer from flash', '(f) FINAL: denoise + detail transfer'}, ...
-        [2 4], 5, xl, yl, diffMax);
-
-    %% Figure 2: bilateral vs Gaussian base (paper Fig. 5) and the mask (paper Fig. 8)
-    showFig([nm ' 2: detail layer base (Fig. 5) and flash artifact mask (Fig. 8)'], ...
-        {DetailG/2, Fdetail/2, M, Atransfer, AfinMask, A}, ...
-        {'Detail layer, Gaussian base (more halos)', 'Detail layer, bilateral base (fewer halos)', ...
-         'Mask M (white = flash shadow / specular, flash not trusted)', ...
-         'Detail transfer WITHOUT mask', 'Detail transfer WITH mask', 'No-flash (reference)'}, ...
-        [2 3], 0, xl, yl, diffMax);
-    drawnow;
-
-    if n < numel(names)
-        if pauseBetween
-            fprintf('Inspect the figures, then press any key in the Command Window for the next scene...\n');
-            pause;
-        end
-        if closeBetween, close all; end
-    end
+imgDir = uigetdir(pwd, 'Select flash/no-flash image folder');
+if isequal(imgDir, 0)
+    error('No folder selected.');
 end
 
-%% ============================ helper functions ============================
+names = {'cave01', 'potsdetail', 'lamp', 'carpet', 'puppets'};
+
+%% Parameters
+sdDenoise = 24;
+srJoint = 0.001;
+srBasic = 0.075;
+
+sdDetail = 12;
+srDetail = 0.10;
+detailGain = 1;
+epsv = 0.02;
+
+tauShad = 0.02;
+specLevel = 0.95;
+autoExposure = true;
+useMask = true;
+
+diffMax = 0.15;
+
+%% Process each image pair
+for n = 1:numel(names)
+
+    nm = names{n};
+
+    A = im2double(imread(fullfile(imgDir, ...
+        [nm '_01_noflash.tif'])));
+    F = im2double(imread(fullfile(imgDir, ...
+        [nm '_00_flash.tif'])));
+
+    % Convert grayscale images to RGB if necessary.
+    if size(A, 3) == 1
+        A = repmat(A, [1 1 3]);
+        F = repmat(F, [1 1 3]);
+    end
+
+    A = min(max(A, 0), 1);
+    F = min(max(F, 0), 1);
+
+    [H, W, ~] = size(A);
+
+    fprintf('\nProcessing %s (%d x %d)...\n', nm, W, H);
+    tic;
+
+    % Parameters for the especially noisy cave01 image.
+    sdD = sdDenoise;
+    sjr = srJoint;
+    sdT = sdDetail;
+    srT = srDetail;
+
+    if strcmp(nm, 'cave01')
+        sdD = 12;
+        sjr = 0.05;
+        sdT = 12;
+        srT = 0.10;
+    end
+
+    %% 1. Denoising
+    Abase = fastJbf(A, A, sdD, srBasic);
+    Anr = fastJbf(A, F, sdD, sjr);
+
+    %% 2. Detail transfer
+    Fbase = fastJbf(F, F, sdT, srT);
+    Fdetail = ((F + epsv) ./ (Fbase + epsv)) .^ detailGain;
+
+    % Gaussian-based detail layer, used for comparison.
+    Fgauss = imgaussfilt(F, sdT);
+    DetailG = ((F + epsv) ./ (Fgauss + epsv)) .^ detailGain;
+
+    Atransfer = min(max(Anr .* Fdetail, 0), 1);
+
+    %% 3. Flash-artifact mask
+    Alin = A .^ 2.2;
+    Flin = F .^ 2.2;
+
+    if autoExposure
+        ambientGreen = Alin(:,:,2);
+        flashGreen = Flin(:,:,2);
+
+        valid = ambientGreen > 0.02 & flashGreen > 0.02;
+        ratios = ambientGreen(valid) ./ flashGreen(valid);
+
+        if ~isempty(ratios)
+            ratios = sort(ratios);
+            idx = max(1, round(0.95 * numel(ratios)));
+            Flin = Flin * ratios(idx);
+        end
+    end
+
+    shadow = lum(Flin - Alin) <= tauShad;
+    shadow = imerode(shadow, strel('disk', 2));
+    shadow = imfill(shadow, 'holes');
+    shadow = imdilate(shadow, strel('disk', 5));
+
+    spec = lum(F) > specLevel;
+    spec = imfill(spec, 'holes');
+    spec = imdilate(spec, strel('disk', 5));
+
+    M = imgaussfilt(double(shadow | spec), 3);
+    M3 = repmat(M, [1 1 3]);
+
+    fprintf('Mask coverage: %.1f%%\n', 100 * mean(M(:) > 0.5));
+
+    %% Final results
+    AfinMask = min(max((1 - M3) .* Anr .* Fdetail ...
+        + M3 .* Abase, 0), 1);
+
+    if useMask
+        Afin = AfinMask;
+    else
+        Afin = Atransfer;
+    end
+
+    dBJ = mean(abs(Abase - Anr), 3);
+
+    fprintf('Processing completed in %.1f seconds.\n', toc);
+
+    %% Select zoom region
+    fsel = figure('Name', 'Select zoom region');
+    imshow(Afin);
+    title([nm ': Select a detail region and double-click']);
+
+    rz = getrect(gca);
+    close(fsel);
+
+    if rz(3) < 3 || rz(4) < 3
+        rz = [W*0.4, H*0.4, W*0.15, H*0.15];
+    end
+
+    xl = [max(1, rz(1)), min(W, rz(1) + rz(3))];
+    yl = [max(1, rz(2)), min(H, rz(2) + rz(4))];
+
+    %% Figure 1: Denoising and detail transfer
+    showFig([nm ': Denoising and detail transfer'], ...
+        {A, F, Abase, Anr, dBJ, Fdetail/2, Afin}, ...
+        {'No-flash image', ...
+         'Flash image', ...
+         'Basic bilateral filter', ...
+         'Flash-guided joint bilateral filter', ...
+         sprintf('Basic vs joint difference (mean %.3f)', mean(dBJ(:))), ...
+         'Flash detail layer', ...
+         'Final result'}, ...
+        [2 4], 5, xl, yl, diffMax);
+
+    %% Figure 2: Detail layers and mask comparison
+    showFig([nm ': Detail and mask comparison'], ...
+        {DetailG/2, Fdetail/2, M, Atransfer, AfinMask, A}, ...
+        {'Gaussian-based detail layer', ...
+         'Bilateral-based detail layer', ...
+         'Flash-artifact mask', ...
+         'Detail transfer without mask', ...
+         'Detail transfer with mask', ...
+         'No-flash reference'}, ...
+        [2 3], 0, xl, yl, diffMax);
+
+    drawnow;
+end
+
+%% Helper functions
 function Y = lum(I)
-Y = 0.299*I(:,:,1) + 0.587*I(:,:,2) + 0.114*I(:,:,3);
+    Y = 0.299*I(:,:,1) + 0.587*I(:,:,2) + 0.114*I(:,:,3);
 end
 
 function showFig(name, imgs, titles, layout, diffIdx, xl, yl, diffMax)
-% Shows panels in a grid; panel diffIdx is a difference image (heat map). All axes linked.
-figure('Name',name,'NumberTitle','off','Color','w','Units','normalized','Position',[0.02 0.1 0.96 0.75]);
-ax = gobjects(1, numel(imgs));
-for k = 1:numel(imgs)
-    ax(k) = subplot(layout(1), layout(2), k);
-    if k == diffIdx, imshow(imgs{k}, [0 diffMax]); colormap(ax(k),'hot');
-    else, imshow(imgs{k}); end
-    title(titles{k}, 'FontSize', 10);
-end
-linkaxes(ax, 'xy');  xlim(ax(1), xl);  ylim(ax(1), yl);
-sgtitle(name, 'FontWeight', 'bold');
+
+    figure('Name', name, 'NumberTitle', 'off', ...
+        'Color', 'w', 'Units', 'normalized', ...
+        'Position', [0.02 0.1 0.96 0.75]);
+
+    ax = gobjects(1, numel(imgs));
+
+    for k = 1:numel(imgs)
+        ax(k) = subplot(layout(1), layout(2), k);
+
+        if k == diffIdx
+            imshow(imgs{k}, [0 diffMax]);
+            colormap(ax(k), 'hot');
+        else
+            imshow(imgs{k});
+        end
+
+        title(titles{k}, 'FontSize', 10);
+    end
+
+    linkaxes(ax, 'xy');
+    xlim(ax(1), xl);
+    ylim(ax(1), yl);
+
+    sgtitle(name, 'FontWeight', 'bold');
 end
 
 function out = fastJbf(A, G, sd, sr)
-% Fast joint bilateral filter, piecewise-linear approximation (Durand & Dorsey 2002),
-% the speed-up the paper suggests. With G = A this is the basic bilateral filter.
-A = single(A);  G = single(G);
-sr  = max(sr, 1/100);                      % floor: paper's 0.001 would need ~1000 intensity levels
-nL  = min(151, max(6, ceil(2/sr) + 1));    % level spacing <= sr/2
-lev = linspace(0, 1, nL);
-out = zeros(size(A), 'single');
-for k = 1:size(A,3)
-    Ak = A(:,:,k);  Gk = G(:,:,k);
-    pos = Gk * (nL-1) + 1;
-    acc = zeros(size(Ak), 'single');
-    for j = 1:nL
-        tent = max(0, 1 - abs(pos - j));
-        if ~any(tent(:)), continue; end
-        Wj  = exp(-(Gk - lev(j)).^2 / (2*sr^2));
-        Jj  = imgaussfilt(Wj .* Ak, sd) ./ max(imgaussfilt(Wj, sd), 1e-6);
-        acc = acc + tent .* Jj;
+    % Fast joint bilateral filter using intensity-level interpolation.
+
+    A = single(A);
+    G = single(G);
+
+    sr = max(sr, 0.01);
+    nL = min(151, max(6, ceil(2/sr) + 1));
+    levels = linspace(0, 1, nL);
+
+    out = zeros(size(A), 'single');
+
+    for k = 1:size(A, 3)
+        Ak = A(:,:,k);
+        Gk = G(:,:,k);
+
+        pos = Gk * (nL - 1) + 1;
+        acc = zeros(size(Ak), 'single');
+
+        for j = 1:nL
+            weights = max(0, 1 - abs(pos - j));
+
+            if ~any(weights(:))
+                continue;
+            end
+
+            rangeWeights = exp(-(Gk - levels(j)).^2 / (2*sr^2));
+
+            numerator = imgaussfilt(rangeWeights .* Ak, sd);
+            denominator = imgaussfilt(rangeWeights, sd);
+
+            filtered = numerator ./ max(denominator, 1e-6);
+            acc = acc + weights .* filtered;
+        end
+
+        out(:,:,k) = acc;
     end
-    out(:,:,k) = acc;
-end
-out = double(out);
+
+    out = double(out);
 end
